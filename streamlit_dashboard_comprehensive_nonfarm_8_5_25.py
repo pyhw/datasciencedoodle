@@ -164,14 +164,19 @@ def load_and_process_data():
             if pd.isna(date_str):
                 return date_str
             date_str = str(date_str).strip()
-            if len(date_str) == 6 and '-' in date_str:
-                month_abbr, year_suffix = date_str.split('-')
-                if len(year_suffix) == 2:
-                    if int(year_suffix) <= 29:
-                        full_year = '20' + year_suffix
-                    else:
-                        full_year = '19' + year_suffix
-                    date_str = f"{month_abbr}-{full_year}"
+            if len(date_str) >= 5 and '-' in date_str:
+                parts = date_str.split('-')
+                if len(parts) == 2:
+                    month_abbr, year_suffix = parts
+                    if len(year_suffix) == 2:
+                        # For 2-digit years, assume 1979-2099 range
+                        # Years 79-99 -> 1979-1999, Years 00-99 -> 2000-2099
+                        year_int = int(year_suffix)
+                        if year_int >= 79:  # 1979 onwards (start of data)
+                            full_year = '19' + year_suffix
+                        else:  # 00-78 -> 2000-2078
+                            full_year = '20' + year_suffix
+                        date_str = f"{month_abbr}-{full_year}"
             return date_str
         
         revisions_clean = nonfarm_revisions.copy()
@@ -1694,19 +1699,29 @@ def main():
         with tab1:
             st.subheader("📊 Employment Revision Patterns")
             
+            # Focus on recent data for better visualization
+            # Show last 5 years of data or all available data if less
+            cutoff_date = pd.Timestamp.now() - pd.DateOffset(years=5)
+            recent_revision_data = revision_data_available[revision_data_available['date'] >= cutoff_date]
+            
+            if len(recent_revision_data) == 0:
+                # If no data in last 5 years, use all available data
+                recent_revision_data = revision_data_available
+            
             # Chart 1: Monthly Revisions by Magnitude (from notebook)
             col1, col2 = st.columns(2)
             
             with col1:
                 st.markdown("**Monthly Revisions by Direction & Magnitude**")
+                st.caption(f"Showing data from {recent_revision_data['date'].min().strftime('%b %Y')} to {recent_revision_data['date'].max().strftime('%b %Y')}")
                 
                 fig1 = go.Figure()
                 
                 # Create bars colored by direction
-                colors = ['green' if x > 0 else 'red' for x in revision_data_available['net_revision']]
+                colors = ['green' if x > 0 else 'red' for x in recent_revision_data['net_revision']]
                 fig1.add_trace(go.Bar(
-                    x=revision_data_available['date'],
-                    y=revision_data_available['total_revision_magnitude'],
+                    x=recent_revision_data['date'],
+                    y=recent_revision_data['total_revision_magnitude'],
                     name='Revision Magnitude',
                     marker_color=colors,
                     opacity=0.7,
@@ -1731,14 +1746,15 @@ def main():
             
             with col2:
                 st.markdown("**Net Revisions (Direction & Size)**")
+                st.caption(f"Showing data from {recent_revision_data['date'].min().strftime('%b %Y')} to {recent_revision_data['date'].max().strftime('%b %Y')}")
                 
                 fig2 = go.Figure()
                 
                 # Net revisions with magnitude line
-                colors_net = ['green' if x > 0 else 'red' for x in revision_data_available['net_revision']]
+                colors_net = ['green' if x > 0 else 'red' for x in recent_revision_data['net_revision']]
                 fig2.add_trace(go.Bar(
-                    x=revision_data_available['date'],
-                    y=revision_data_available['net_revision'],
+                    x=recent_revision_data['date'],
+                    y=recent_revision_data['net_revision'],
                     name='Net Revision',
                     marker_color=colors_net,
                     opacity=0.7
@@ -1845,15 +1861,19 @@ def main():
             else:
                 st.success("✅ **NO WARNING**: Revision patterns appear normal")
             
-            # Consecutive downward revisions chart
+            # Consecutive downward revisions chart - focus on recent data
+            recent_consecutive_data = revision_data_available[revision_data_available['date'] >= cutoff_date]
+            if len(recent_consecutive_data) == 0:
+                recent_consecutive_data = revision_data_available
+                
             fig4 = go.Figure()
             
             colors_consecutive = ['red' if x >= 3 else 'orange' if x >= 2 else 'gray' 
-                                for x in revision_data_available['consecutive_downward']]
+                                for x in recent_consecutive_data['consecutive_downward']]
             
             fig4.add_trace(go.Bar(
-                x=revision_data_available['date'],
-                y=revision_data_available['consecutive_downward'],
+                x=recent_consecutive_data['date'],
+                y=recent_consecutive_data['consecutive_downward'],
                 name='Consecutive Downward Months',
                 marker_color=colors_consecutive,
                 opacity=0.7

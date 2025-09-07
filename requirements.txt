@@ -1,0 +1,23 @@
+# Core Data Processing & Analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Web Framework & Dashboard
+streamlit>=1.28.0
+
+# Visualization Libraries
+plotly>=5.15.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Machine Learning & Forecasting
+scikit-learn>=1.3.0
+prophet>=1.1.4
+
+# Interactive Maps - REQUIRED for dashboard maps
+folium>=0.14.0
+streamlit-folium>=0.15.0
+
+# Alternative installation methods for streamlit-folium if needed:
+# pip install streamlit-folium --upgrade
+# pip install git+https://github.com/randyzwitch/streamlit-folium.git

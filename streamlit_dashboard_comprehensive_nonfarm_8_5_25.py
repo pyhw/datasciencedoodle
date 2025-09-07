@@ -1593,41 +1593,96 @@ def main():
     elif page == "🔄 Revisions Analysis":
         st.markdown('<div class="section-header">🔄 Nonfarm Payroll Revisions Analysis</div>', unsafe_allow_html=True)
         
-        # Check if we have revision data
-        if 'net_revision' not in data.columns or data['net_revision'].notna().sum() == 0:
-            st.error("❌ Revision data not available. Please check the revisions data file.")
+        # Enhanced data availability check with better filtering
+        has_revision_data = False
+        revision_data_available = pd.DataFrame()
+        
+        if 'net_revision' in data.columns:
+            # Filter for rows with complete revision data (at least some revision values)
+            revision_cols = ['1st_Revision', '2nd_Revision', '3rd_Revision']
+            available_cols = [col for col in revision_cols if col in data.columns]
+            
+            if available_cols:
+                # Consider a row to have revision data if at least one revision column has data
+                revision_mask = data[available_cols].notna().any(axis=1)
+                revision_data_available = data[revision_mask].copy()
+                
+                # Recalculate revision metrics for available data only
+                if len(revision_data_available) > 0:
+                    revision_data_available['total_revision_magnitude'] = revision_data_available[available_cols].abs().sum(axis=1, skipna=True)
+                    revision_data_available['net_revision'] = revision_data_available[available_cols].sum(axis=1, skipna=True)
+                    revision_data_available['revision_count'] = revision_data_available[available_cols].notna().sum(axis=1)
+                    has_revision_data = True
+        
+        if not has_revision_data or len(revision_data_available) == 0:
+            st.error("❌ No revision data available. Please check the revisions data file.")
             st.info("💡 This analysis requires the nonfarm payroll revisions dataset to be properly loaded.")
             return
         
-        # Key Insights Summary at the top
+        # Data freshness warning
+        latest_revision_date = revision_data_available['date'].max()
+        latest_employment_date = data['date'].max()
+        months_behind = (latest_employment_date.year - latest_revision_date.year) * 12 + (latest_employment_date.month - latest_revision_date.month)
+        
+        if months_behind > 2:
+            st.warning(f"⚠️ **Data Freshness Alert**: Revision data is {months_behind} months behind employment data. Latest revision data: {latest_revision_date.strftime('%B %Y')}")
+        
+        # Key Insights Summary with adaptive metrics
         st.markdown('<div class="section-header">📈 Key Insights Summary</div>', unsafe_allow_html=True)
         
-        # Calculate key revision statistics
-        revision_data_available = data[data['net_revision'].notna()].copy()
-        recent_revisions = revision_data_available.tail(12)
+        # Calculate recent revisions with available data
+        recent_revisions = revision_data_available.tail(min(12, len(revision_data_available)))
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             avg_revision_magnitude = revision_data_available['total_revision_magnitude'].mean()
             st.metric("Avg Revision Magnitude", f"{avg_revision_magnitude:.0f}K", 
-                     "Historical average")
+                     f"Based on {len(revision_data_available)} months")
         
         with col2:
             upward_pct = (revision_data_available['net_revision'] > 0).mean() * 100
             st.metric("Upward Revisions", f"{upward_pct:.1f}%", 
-                     "Of all revisions")
+                     "Of available revisions")
         
         with col3:
             recent_downward = (recent_revisions['net_revision'] < 0).sum()
-            st.metric("Recent Downward", f"{recent_downward}/12", 
-                     "Last 12 months")
+            recent_period = len(recent_revisions)
+            st.metric("Recent Downward", f"{recent_downward}/{recent_period}", 
+                     f"Last {recent_period} months")
         
         with col4:
             max_magnitude = revision_data_available['total_revision_magnitude'].max()
+            max_date = revision_data_available.loc[revision_data_available['total_revision_magnitude'].idxmax(), 'date']
             st.metric("Largest Revision", f"{max_magnitude:.0f}K", 
-                     "Single month")
+                     f"{max_date.strftime('%b %Y')}")
         
+        # Data completeness information
+        with st.expander("📋 Data Completeness Information", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.write("**Dataset Coverage:**")
+                first_revision_date = revision_data_available['date'].min()
+                st.write(f"• First revision: {first_revision_date.strftime('%B %Y')}")
+                st.write(f"• Latest revision: {latest_revision_date.strftime('%B %Y')}")
+                st.write(f"• Total months: {len(revision_data_available)}")
+                
+            with col2:
+                st.write("**Data Quality:**")
+                complete_revisions = revision_data_available['revision_count'].mean()
+                st.write(f"• Avg revisions per month: {complete_revisions:.1f}")
+                incomplete_months = (revision_data_available['revision_count'] < 3).sum()
+                st.write(f"• Incomplete months: {incomplete_months}")
+                
+            with col3:
+                st.write("**Latest Status:**")
+                if months_behind <= 2:
+                    st.write("✅ Data is current")
+                else:
+                    st.write(f"⚠️ {months_behind} months behind")
+                st.write(f"• Employment data through: {latest_employment_date.strftime('%B %Y')}")
+
         # Create tabbed interface for different analyses
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 Revision Patterns", 
@@ -1703,9 +1758,12 @@ def main():
             
             # Recent detailed analysis
             st.markdown("---")
-            st.subheader("🔍 Recent Revision Analysis (Last 24 Months)")
+            recent_window = min(24, len(revision_data_available))
+            st.subheader(f"🔍 Recent Revision Analysis (Last {recent_window} Months)")
             
-            recent_24m = revision_data_available.tail(24)
+            recent_24m = revision_data_available.tail(recent_window)
+            if recent_window < 24:
+                st.info(f"📊 Showing {recent_window} months of available data (typically 24 months shown when complete data is available)")
             if len(recent_24m) > 0:
                 fig3 = make_subplots(specs=[[{"secondary_y": True}]])
                 
@@ -1767,8 +1825,9 @@ def main():
                          "Warning at 3+")
             
             with col2:
-                recent_6_down = (revision_data_available.tail(6)['net_revision'] < 0).sum() if len(revision_data_available) >= 6 else 0
-                st.metric("Downward (Last 6 months)", f"{recent_6_down}/6", 
+                recent_window = min(6, len(revision_data_available))
+                recent_6_down = (revision_data_available.tail(recent_window)['net_revision'] < 0).sum() if len(revision_data_available) > 0 else 0
+                st.metric("Downward (Recent months)", f"{recent_6_down}/{recent_window}", 
                          "Pattern indicator")
             
             with col3:
